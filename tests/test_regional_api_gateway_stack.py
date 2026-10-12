@@ -412,6 +412,69 @@ class TestRegionalApiGatewayStack:
             },
         )
 
+    def test_secret_read_is_scoped_to_deterministic_global_region_arn(
+        self, app, mock_config, vpc
+    ):
+        """Secret grants must use the deterministic (name + global region +
+
+        account) ARN, not the passed-in ``auth_secret_arn``. In the primary
+        region the API Gateway stack is co-located, so ``secret.secret_arn`` is
+        a cross-stack ``Fn::ImportValue`` token and ``f"{token}*"`` renders an
+        ``AwsSolutions-IAM5`` finding
+        (``Resource::<project>-api-gateway:ExportsOutputRef...*``) that no
+        suppression covers — synthesis then fails. Building the ARN
+        deterministically makes the finding identical in every region and match
+        the existing allow-list. This locks that behaviour: both proxy roles
+        must scope to the global region (us-east-2 in the mock), never to the
+        us-east-1 region of the passed-in ``auth_secret_arn``, and never to a
+        cross-stack ref.
+        """
+        from gco.stacks.constants import api_gateway_auth_secret_name
+        from gco.stacks.regional_api_gateway_stack import GCORegionalApiGatewayStack
+
+        stack = GCORegionalApiGatewayStack(
+            app,
+            "TestRegionalApiStack",
+            config=mock_config,
+            region="us-east-1",
+            vpc=vpc,
+            alb_dns_name="internal-test-alb.elb.amazonaws.com",
+            # Deliberately a cross-region literal (us-east-1) distinct from the
+            # mock's global region (us-east-2) so the assertion proves the grant
+            # ignores this ARN's region in favour of the deterministic one.
+            auth_secret_arn="arn:aws:secretsmanager:us-east-1:123456789012:secret:test-secret",  # nosec B106  # test fixture ARN with fake account ID, not a real secret
+            aggregator_role_arn="arn:aws:iam::123456789012:role/gco-test-aggregator",
+            env=cdk.Environment(region="us-east-1"),
+        )
+
+        template = assertions.Template.from_stack(stack)
+
+        expected_secret_arn = stack.resolve(
+            f"arn:{stack.partition}:secretsmanager:us-east-2:{stack.account}:"
+            f"secret:{api_gateway_auth_secret_name('gco')}*"
+        )
+
+        secret_statements = [
+            statement
+            for policy in template.find_resources("AWS::IAM::Policy").values()
+            for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+            if statement.get("Action") == [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+            ]
+        ]
+
+        # Both the control-plane proxy role and the inference streaming role
+        # read the HMAC secret.
+        assert len(secret_statements) == 2
+        for statement in secret_statements:
+            assert statement["Resource"] == expected_secret_arn
+            # Must not fall back to the passed-in ARN's region or a cross-stack
+            # ``Fn::ImportValue`` ref — the regressions this test guards.
+            rendered = json.dumps(statement["Resource"])
+            assert "us-east-1" not in rendered
+            assert "Fn::ImportValue" not in rendered
+
     def test_regional_api_gateway_has_log_groups(self, app, mock_config, vpc):
         """Test that the regional API gateway has CloudWatch log groups."""
         from gco.stacks.regional_api_gateway_stack import GCORegionalApiGatewayStack

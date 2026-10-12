@@ -51,6 +51,7 @@ from gco.stacks.constants import (
     DEFAULT_MAX_REQUEST_BODY_BYTES,
     LAMBDA_NODEJS_RUNTIME,
     LAMBDA_PYTHON_RUNTIME,
+    api_gateway_auth_secret_name,
     backend_tls_root_ca_parameter_name,
     backend_tls_server_name,
     validated_request_body_limit,
@@ -159,7 +160,22 @@ class GCORegionalApiGatewayStack(Stack):
             ],
         )
 
-        # Grant read access to auth secret.
+        # Grant read access to auth secret. Scope the grant to the secret's
+        # deterministic ARN (name + API Gateway/global region + account) rather
+        # than the passed-in ``auth_secret_arn``. In the primary region the
+        # regional-api stack is co-located with the API Gateway stack, so
+        # ``secret.secret_arn`` is wired as a cross-stack ``Fn::ImportValue``
+        # token; ``f"{token}*"`` then renders an ``AwsSolutions-IAM5`` finding
+        # (``Resource::<project>-api-gateway:ExportsOutputRef...*``) that no
+        # suppression covers, whereas non-primary regions get the literal ARN
+        # that ``add_iam_suppressions`` already allow-lists. Building the ARN
+        # deterministically here makes the finding identical in every region
+        # and match the existing suppression — the same fix the regional
+        # service-account role already applies (issue #125).
+        auth_secret_resource = (
+            f"arn:{self.partition}:secretsmanager:{self.config.get_global_region()}:"
+            f"{self.account}:secret:{api_gateway_auth_secret_name(project_name)}*"
+        )
         lambda_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -167,7 +183,7 @@ class GCORegionalApiGatewayStack(Stack):
                     "secretsmanager:GetSecretValue",
                     "secretsmanager:DescribeSecret",
                 ],
-                resources=[f"{self.auth_secret_arn}*"],
+                resources=[auth_secret_resource],
             )
         )
 
@@ -302,6 +318,14 @@ class GCORegionalApiGatewayStack(Stack):
                 )
             ],
         )
+        # Scope the HMAC secret grant to its deterministic ARN rather than the
+        # passed-in cross-stack token — see the matching comment in
+        # ``_create_vpc_proxy_lambda`` and issue #125. ``registry_region`` is
+        # the API Gateway/global region where the secret lives.
+        auth_secret_resource = (
+            f"arn:{self.partition}:secretsmanager:{registry_region}:"
+            f"{self.account}:secret:{api_gateway_auth_secret_name(project_name)}*"
+        )
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -309,7 +333,7 @@ class GCORegionalApiGatewayStack(Stack):
                     "secretsmanager:GetSecretValue",
                     "secretsmanager:DescribeSecret",
                 ],
-                resources=[f"{self.auth_secret_arn}*"],
+                resources=[auth_secret_resource],
             )
         )
         role.add_to_policy(
