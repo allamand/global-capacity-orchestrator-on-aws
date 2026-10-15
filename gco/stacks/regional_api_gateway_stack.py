@@ -128,7 +128,37 @@ class GCORegionalApiGatewayStack(Stack):
             self,
             stack_type="regional_api_gateway",
             global_region=self.config.get_global_region(),
+            # Key the auth-secret read suppression on the Region the grants in
+            # this stack target (see ``_auth_secret_read_resource``).
+            api_gateway_region=self.config.get_api_gateway_region(),
             project_name=self.config.get_project_name(),
+        )
+
+    def _auth_secret_read_resource(self) -> str:
+        """IAM resource for reading the backend HMAC auth secret.
+
+        Built from the secret's name, the API Gateway Region, and this
+        account, never from ``self.auth_secret_arn``. That argument is a
+        cross-stack reference: an ARN built from the secret's name when this
+        stack is in another Region from the API Gateway stack, but a native
+        export (``<project>-api-gateway:ExportsOutputRef...``) when it shares
+        that Region, and ``f"{export}*"`` matches no suppression, so
+        ``cdk synth`` failed AwsSolutions-IAM5 there (PR #461; issue #125 was
+        the same failure on the regional stack's roles). The deterministic ARN
+        renders the same in every topology and matches the suppression
+        ``add_iam_suppressions`` registers for the API Gateway Region.
+
+        The Region must be the API Gateway's, not the global one: the API
+        Gateway stack creates the secret, and ``deployment_regions`` lets the
+        two differ, in which case a grant in the global Region denies every
+        read. The trailing ``*`` matches the six random characters Secrets
+        Manager appends to the secret's ARN. At runtime the Lambdas still read
+        ``SECRET_ARN``, the cross-stack reference itself.
+        """
+        return (
+            f"arn:{self.partition}:secretsmanager:{self.config.get_api_gateway_region()}:"
+            f"{self.account}:secret:"
+            f"{api_gateway_auth_secret_name(self.config.get_project_name())}*"
         )
 
     def _create_vpc_proxy_lambda(self) -> lambda_.Function:
@@ -160,22 +190,8 @@ class GCORegionalApiGatewayStack(Stack):
             ],
         )
 
-        # Grant read access to auth secret. Scope the grant to the secret's
-        # deterministic ARN (name + API Gateway/global region + account) rather
-        # than the passed-in ``auth_secret_arn``. In the primary region the
-        # regional-api stack is co-located with the API Gateway stack, so
-        # ``secret.secret_arn`` is wired as a cross-stack ``Fn::ImportValue``
-        # token; ``f"{token}*"`` then renders an ``AwsSolutions-IAM5`` finding
-        # (``Resource::<project>-api-gateway:ExportsOutputRef...*``) that no
-        # suppression covers, whereas non-primary regions get the literal ARN
-        # that ``add_iam_suppressions`` already allow-lists. Building the ARN
-        # deterministically here makes the finding identical in every region
-        # and match the existing suppression — the same fix the regional
-        # service-account role already applies (issue #125).
-        auth_secret_resource = (
-            f"arn:{self.partition}:secretsmanager:{self.config.get_global_region()}:"
-            f"{self.account}:secret:{api_gateway_auth_secret_name(project_name)}*"
-        )
+        # Grant read access to the auth secret, scoped to its deterministic ARN
+        # in the API Gateway Region (see ``_auth_secret_read_resource``).
         lambda_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -183,7 +199,7 @@ class GCORegionalApiGatewayStack(Stack):
                     "secretsmanager:GetSecretValue",
                     "secretsmanager:DescribeSecret",
                 ],
-                resources=[auth_secret_resource],
+                resources=[self._auth_secret_read_resource()],
             )
         )
 
@@ -318,14 +334,8 @@ class GCORegionalApiGatewayStack(Stack):
                 )
             ],
         )
-        # Scope the HMAC secret grant to its deterministic ARN rather than the
-        # passed-in cross-stack token — see the matching comment in
-        # ``_create_vpc_proxy_lambda`` and issue #125. ``registry_region`` is
-        # the API Gateway/global region where the secret lives.
-        auth_secret_resource = (
-            f"arn:{self.partition}:secretsmanager:{registry_region}:"
-            f"{self.account}:secret:{api_gateway_auth_secret_name(project_name)}*"
-        )
+        # The HMAC secret lives in the API Gateway Region, not the global one
+        # ``registry_region`` names (see ``_auth_secret_read_resource``).
         role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -333,7 +343,7 @@ class GCORegionalApiGatewayStack(Stack):
                     "secretsmanager:GetSecretValue",
                     "secretsmanager:DescribeSecret",
                 ],
-                resources=[auth_secret_resource],
+                resources=[self._auth_secret_read_resource()],
             )
         )
         role.add_to_policy(
