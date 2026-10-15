@@ -10,7 +10,8 @@ site-packages, the application tree, and the exact shared libraries those
 binaries link against.
 
 Why hand-assembled scratch instead of gcr.io/distroless:
-- The platform pins CPython 3.14.6; no distroless base ships it (Google's
+- The platform pins an exact CPython 3.14 patch release (the builder's
+  ``python:X.Y.Z-slim`` tag); no distroless base ships it (Google's
   ``distroless/python3`` tracks Debian's interpreter, currently 3.13).
 - Copying the ELF closure from the *patched* builder keeps the existing
   APT_SECURITY_EPOCH workflow meaningful: ``apt-get upgrade`` in the builder

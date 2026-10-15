@@ -2,9 +2,9 @@
 Stack management for GCO CLI.
 
 Provides commands for deploying, updating, and managing CDK stacks.
-This is the largest CLI module (~1600 lines) because it orchestrates the
-full deployment lifecycle including container runtime detection, CDK
-bootstrapping, Lambda source synchronization, and parallel regional deploys.
+It orchestrates the full deployment lifecycle, including container runtime
+detection, CDK bootstrapping, Lambda source synchronization, and parallel
+regional deploys.
 
 This module handles:
     - Container runtime detection (Docker, Finch, Podman) with automatic fallback

@@ -1,9 +1,8 @@
 """
 Regional stack for GCO (Global Capacity Orchestrator on AWS) - EKS cluster and ALB per region.
 
-This is the largest stack in the project (~3200 lines) and creates all regional
-resources for a single AWS region. One instance is deployed per region defined
-in cdk.json.
+It creates all regional resources for a single AWS region. One instance is
+deployed per region defined in cdk.json.
 
 Resources Created:
     VPC & Networking:
