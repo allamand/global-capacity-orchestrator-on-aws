@@ -1,143 +1,141 @@
-# Dependabot scope is GitHub Actions, Docker, repository tooling, and the
-# deployable Node Lambda. Python dependencies are intentionally NOT tracked
-# here — they are pinned via `requirements-lock.txt` with `pip-compile` and
-# reviewed intentionally.
+# Dependabot scope is GitHub Actions, Docker, repository tooling, the
+# deployable Node Lambda, and CI-only Ruby tooling. Python dependencies are
+# intentionally NOT tracked here — they are pinned via `requirements-lock.txt`
+# with `pip-compile` and reviewed intentionally.
 # The monthly `deps-scan` workflow tracks language/runtime drift (including
 # Lambda Python and Node.js), while weekly CVE scanning covers locked graphs.
+#
+# One pull request per week. Every entry below joins the `all-dependencies`
+# multi-ecosystem group, so Dependabot opens a single PR across all ecosystems
+# instead of one per dependency. `main` requires a branch to be up to date
+# before it merges and each PR runs the full ~100-check suite, so N separate
+# PRs cost N sequential CI runs plus a rebase of every sibling after each
+# merge; the batch costs one. Batching also keeps lockstep pins atomic, which
+# two contracts require: lint:actions:pinning wants every reference to one
+# action repository on one SHA (`github/codeql-action/init` and `/analyze`
+# once arrived as #287/#284), and tests/test_python_base_image_consistency.py
+# wants one python tag across Dockerfile.dev and the service Dockerfiles (a
+# bump used to arrive as one PR for "/" and another for "/dockerfiles"). Split
+# across PRs, neither half can pass CI.
+#
+# The trade-off is that one bad update holds back the batch. Hold it back with
+# an `ignore` entry here, where the rule stays reviewable; Dependabot re-runs
+# as soon as this file changes on main. The `@dependabot ignore <dependency>
+# [major|minor] version` comment on the grouped PR does the same job, but it
+# closes the PR and stores the rule outside this file, out of reviewers' sight.
+#
+# Security updates do not wait for this schedule: Dependabot raises them as
+# soon as an alert fires. The repository's "Grouped security updates" setting
+# (Settings > Advanced Security) batches them into one PR per ecosystem,
+# including Python, which this file deliberately leaves out. That setting lives
+# outside this file, so a fork has to enable it, along with Dependabot version
+# updates; see docs/FORKING.md.
 
 version: 2
+
+multi-ecosystem-groups:
+  all-dependencies:
+    # Monday morning US Eastern, so the batch and its CI run are ready at the
+    # start of the week.
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
+    labels:
+      - "dependencies"
+    # Pin the conventional-commit title ("chore(deps): ...") instead of relying
+    # on Dependabot inferring it from commit history.
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+# Every entry joins the group, so each one needs `patterns` ("*" = all of its
+# dependencies) and none sets its own `schedule` or `groups`. `cooldown` stays
+# per entry: wait a week after a release before proposing it, so a freshly
+# published (possibly compromised or broken) version isn't pulled in
+# immediately. Satisfies the dependabot-missing-cooldown semgrep rule.
 updates:
-  # Keep actions (actions/checkout, actions/setup-python, etc.) current.
+  # GitHub Actions, for the workflows and the composite actions together.
+  #
   # Every third-party ref is pinned to a commit SHA with the tag in a trailing
   # comment; Dependabot rewrites both halves, which is what keeps SHA pinning
   # maintainable rather than a one-time freeze. See .github/CI.md#action-pinning.
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    # Wait a week after a release before proposing an update, so a freshly
-    # published (possibly compromised or broken) version isn't pulled in
-    # immediately. Satisfies the dependabot-missing-cooldown semgrep rule.
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "github-actions"
-    # codeql-action's subpath actions (init, analyze) live in one repo and
-    # must move to one commit together: lint:actions:pinning requires every
-    # reference to an action repo to resolve to a single SHA, so per-subpath
-    # PRs (observed as #287/#284) can never pass CI individually. Grouping
-    # makes Dependabot open one atomic PR for the whole repo.
-    groups:
-      codeql-action:
-        patterns:
-          - "github/codeql-action*"
-
-  # Composite actions under .github/actions/*/action.yml.
   #
-  # These need their own block: for the github-actions ecosystem a `directory`
-  # of "/" scans .github/workflows plus an action.yml at the *repository root*
-  # only, so the third-party refs inside our composite actions
-  # (docker/build-push-action, actions/upload-artifact, aquasecurity/setup-trivy,
-  # docker/setup-buildx-action) are invisible to the block above and would sit
-  # frozen at whatever SHA they were pinned at.
-  #
-  # `directories` — not `directory` — because only the plural key supports the
-  # `*` wildcard. Kept as a separate block so the proven "/" configuration above
-  # is untouched, and because the ecosystem requires directory sets not to
-  # overlap. tests/test_workflow_security_contract.py asserts this coverage
-  # still resolves to every composite action that names a third-party action.
+  # "/" scans .github/workflows plus an action.yml at the *repository root*
+  # only, so the third-party refs inside .github/actions/*/action.yml need the
+  # second, globbed directory; only the plural `directories` key supports `*`.
+  # tests/test_workflow_security_contract.py asserts this coverage still
+  # resolves to every composite action that names a third-party action.
   - package-ecosystem: "github-actions"
     directories:
+      - "/"
       - "/.github/actions/*"
-    schedule:
-      interval: "weekly"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "github-actions"
 
-  # Locked repository tooling (AWS CDK CLI, cdk-dia, markdownlint-cli2).
+  # Locked repository tooling (AWS CDK CLI, cdk-dia, markdownlint-cli2,
+  # swagger-ui-dist).
   #
-  # Grouped for CI economy: these are independent tools, but their
-  # minor/patch updates are low-risk and each separate PR costs a full
-  # ~90-check CI run plus a lockfile rebase of every sibling PR. Majors are
-  # deliberately excluded from the group so a breaking bump still arrives
-  # as its own reviewable PR.
+  # The two npm graphs keep one entry each with a singular `directory`:
+  # check_npm_package_management (.github/scripts/lib_dependency_scan.sh, run
+  # by security.yml and deps-scan) requires a matching npm `directory:` entry
+  # for every repository-owned package.json.
   - package-ecosystem: "npm"
     directory: "/"
-    schedule:
-      interval: "weekly"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 3
     labels:
       - "dependencies"
-    groups:
-      repo-tooling-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
 
-  # Bundled AWS SDK clients for the inference response-streaming Lambda.
-  #
-  # The @aws-sdk/* clients version in lockstep from one monorepo release
-  # train; ungrouped they arrive as one PR per client (observed as
-  # #286/#285/#283 for a single release), each invalidating the others'
-  # package-lock.json. One grouped PR is the semantically honest unit.
-  # Majors stay individual for scrutiny.
+  # Bundled AWS SDK clients for the inference response-streaming Lambda. The
+  # @aws-sdk/* clients version in lockstep from one monorepo release train, so
+  # they belong in one PR (ungrouped they once arrived as #286/#285/#283, each
+  # invalidating the others' package-lock.json).
   - package-ecosystem: "npm"
     directory: "/lambda/inference-streaming-proxy"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-    groups:
-      aws-sdk-minor-patch:
-        patterns:
-          - "@aws-sdk/*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  # Service image base layers.
-  - package-ecosystem: "docker"
-    directory: "/dockerfiles"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "docker"
-
-  # Helm-installer Lambda container base image.
-  - package-ecosystem: "docker"
-    directory: "/lambda/helm-installer"
-    schedule:
-      interval: "weekly"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
     cooldown:
       default-days: 7
     labels:
       - "dependencies"
-      - "docker"
 
-  # Dev container base image (Dockerfile.dev lives at the repo root).
+  # Base images: the service images, the dev container (Dockerfile.dev at the
+  # repository root), and both Lambda container images.
+  #
+  # Only patch releases of the Python bases flow (3.14.8 -> 3.14.9). A new
+  # series (3.14 -> 3.15) moves .python-version, pyproject's requires-python,
+  # LAMBDA_PYTHON_RUNTIME in gco/stacks/constants.py, and every image together,
+  # so it is a deliberate change made from the deps-scan report, not one line
+  # in a weekly batch. Without this rule Dependabot also proposes the next
+  # series' betas and release candidates (closed by hand as #228, #229, #248,
+  # #249). Both Lambda images float on the `lambda/python:3.14` tag, so for
+  # them the rule leaves nothing to propose today; they stay listed so a future
+  # patch- or digest-pinned base is not invisible.
   - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
+    directories:
+      - "/"
+      - "/dockerfiles"
+      - "/lambda/helm-installer"
+      - "/lambda/tls-certificate-manager"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # public.ecr.aws/lambda/python; Dependabot drops the registry host.
+      - dependency-name: "lambda/python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     labels:
       - "dependencies"
       - "docker"
@@ -151,11 +149,9 @@ updates:
   # CHECKSUMS block in Gemfile.lock would otherwise freeze silently.
   - package-ecosystem: "bundler"
     directory: "/"
-    schedule:
-      interval: "weekly"
+    multi-ecosystem-group: "all-dependencies"
+    patterns: ["*"]
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 3
     labels:
       - "dependencies"
-      - "ruby"

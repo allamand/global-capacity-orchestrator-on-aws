@@ -95,6 +95,15 @@ resolved from a package registry at runtime by `mcp.json`. They are published
 package identifiers, not repository references; rewriting them means `uvx`
 cannot find the package and the servers fail to start.
 
+A blanket replacement of the repository name breaks one more:
+
+**The AWS Solutions Library guidance page.** GCO is published as official AWS
+Solutions Guidance at
+[docs.aws.amazon.com/solutions/eks-automode-clusters-with-global-capacity-orchestrator-on-aws](https://docs.aws.amazon.com/solutions/eks-automode-clusters-with-global-capacity-orchestrator-on-aws/),
+whose slug ends in the repository name. AWS owns that page and it describes the
+upstream project, so the tool leaves every link to it alone; drop or replace
+those links yourself if your fork should not point there.
+
 Three files keep their upstream references on purpose, because they define or
 explain the upstream identity: `scripts/migrate_fork.py`,
 `tests/test_migrate_fork.py`, and this guide.
@@ -189,8 +198,20 @@ copyright alongside rather than replacing what is there.
 - **Actions secrets and variables** the workflows expect, notably the AWS role
   ARN the OIDC login step assumes.
 - **Branch protection** rules, which forks do not inherit.
-- **Dependabot** — [`.github/dependabot.yml`](../.github/dependabot.yml) works
-  as-is, but Dependabot must be enabled for the repository.
+- **Dependabot**, under **Settings > Advanced Security**:
+  - **Dependabot version updates.** [`.github/dependabot.yml`](../.github/dependabot.yml)
+    works as-is, but GitHub does not act on it in a fork until this is
+    enabled. Once it is, Dependabot opens the same single weekly pull request it
+    opens upstream.
+  - **Dependabot alerts** and **Dependabot security updates**, which the next
+    setting needs, along with the dependency graph.
+  - **Grouped security updates.** Upstream enables this so security fixes
+    arrive as one pull request per ecosystem, across every directory, instead
+    of one pull request per vulnerable package. It has to be a setting:
+    `dependabot.yml` can group security updates only for the ecosystems it
+    lists, and it deliberately lists no Python. Without the setting, each
+    vulnerable Python package in `requirements-lock.txt` or a Lambda
+    `requirements.txt` arrives as its own pull request.
 - **Actions permissions**, if your organization restricts which actions may run.
 
 ## Verifying the Migration

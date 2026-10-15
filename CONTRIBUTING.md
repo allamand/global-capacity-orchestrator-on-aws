@@ -1,6 +1,6 @@
-# Contributing to GCO (Global Capacity Orchestrator on AWS)
+# Contributing to Global Capacity Orchestrator (GCO)
 
-Thank you for contributing to GCO (Global Capacity Orchestrator on AWS)! This guide will help you get started.
+Thank you for contributing to Global Capacity Orchestrator (GCO)! This guide will help you get started.
 
 ## Table of Contents
 
@@ -146,7 +146,9 @@ exact npm release declared by `packageManager`:
 bash .github/scripts/use-pinned-npm.sh package.json
 ```
 
-Keep these graphs separate: root development tools must never enter the deployable Lambda bundle. Direct versions must be exact, lockfiles must be committed, and every new repository-owned `package.json` must add a matching npm entry in `.github/dependabot.yml`. CI's `check_npm_package_management` guard fails on an unlocked, ranged, unpinned, or unmanaged graph. Node 24, npm 12.0.2, and the root CDK CLI pin are also checked against `.nvmrc`, `Dockerfile.dev`, `gco/stacks/constants.py`, and both manifests by the monthly dependency scan.
+Keep these graphs separate: root development tools must never enter the deployable Lambda bundle. Direct versions must be exact, lockfiles must be committed, and every new repository-owned `package.json` must add a matching npm entry in `.github/dependabot.yml`. CI's `check_npm_package_management` guard fails on an unlocked, ranged, unpinned, or unmanaged graph. Node 24, npm 12.2.0, and the root CDK CLI pin are also checked against `.nvmrc`, `Dockerfile.dev`, `gco/stacks/constants.py`, and both manifests by the monthly dependency scan.
+
+An npm `overrides` entry is the one sanctioned way to lift a transitive package to an advisory's fixed release when the direct dependency pins the vulnerable version exactly and no release of that dependency has caught up (bundled copies are out of its reach and get an `.npm-audit-ignore` entry instead). Overrides must be exact versions and must go when the direct dependency catches up; `tests/test_supply_chain_integrity.py` fails the moment the lockfile shows the dependency requesting the fixed line itself.
 
 #### Regenerating the Lockfile
 
@@ -169,12 +171,14 @@ docker run --rm -v "$(pwd):/workspace" -w /workspace gco-dev bash -c '
 '
 ```
 
-The `pip install "pip==25.0.1"` step works around `pip-tools==7.6.1` importing
-pip internals (`pip._internal.utils.compat.stdlib_pkgs`) that newer pip — as
-shipped in the current `python:3.14-slim` base image — has removed. The
-downgrade lives only inside the throwaway container; upgrading `pip-tools`
-past 7.6 would remove the need for it, but that is a dependency change made on
-its own PR, not silently alongside a lockfile regeneration.
+The `pip install "pip==25.0.1"` step keeps the resolver on the exact pip that
+CI's `unit:lockfile:freshness` job uses. It began as a workaround for
+`pip-tools==7.6.1` importing pip internals
+(`pip._internal.utils.compat.stdlib_pkgs`) that newer pip had removed; the
+pinned `pip-tools==7.6.2` also resolves identically on the base image's stock
+pip, but the resolver version stays part of the reproducibility contract, so
+change it in the workflow and here together. The downgrade lives only inside
+the throwaway container.
 
 The `sed` step removes the `gco-cli @ file:///workspace` self-reference that
 `pip-compile` always emits (two lines — the `file://` URI and its `# via`
@@ -786,7 +790,7 @@ After releasing, confirm the auto-generated GitHub Release notes read well (they
 
 Dependency drift is tracked through three layers:
 
-1. **Dependabot (weekly PRs)** — GitHub Actions, Docker, the locked root npm tooling graph, and the deployable inference-streaming Lambda graph. See `.github/dependabot.yml`. Python packages are intentionally excluded because `requirements-lock.txt` is managed through `pip-compile` and bumped intentionally.
+1. **Dependabot (one weekly PR)** — GitHub Actions, Docker, the locked root npm tooling graph, the deployable inference-streaming Lambda graph, and the CI-only RubyGems graph, batched into a single grouped pull request every Monday. See `.github/dependabot.yml` and [`.github/CI.md`](.github/CI.md#dependabot). Python packages are intentionally excluded because `requirements-lock.txt` is managed through `pip-compile` and bumped intentionally.
 2. **`deps-scan` workflow (monthly issue)** — runs on the 1st of each month at 09:00 UTC. Checks Python packages, Docker images, Helm charts, EKS add-on versions, Aurora PostgreSQL engine versions, pre-commit hook revisions, and accelerator catalog/NodePool/watch-list policy. Deterministic accelerator validation always runs offline; with OIDC credentials the scan also compares the checked-in catalog with the live enabled-Region EC2 union. If anything is out of date or an online check cannot run correctly, it updates one GitHub issue labeled `dependencies, automated`. The scan logic lives in [`.github/scripts/dependency-scan.sh`](.github/scripts/dependency-scan.sh) — see [`.github/CI.md`](.github/CI.md#dependency-scan-script) for the full reference (surfaces checked, inputs, outputs, extension points, failure modes). Pinned versions are centralised in [`gco/stacks/constants.py`](gco/stacks/constants.py).
 3. **`cve-scan` workflow (weekly job)** — runs Mondays at 09:00 UTC. Re-runs Trivy against the latest CVE databases. A red run is the signal; the per-push `security.yml` workflow will catch the same issue on the next PR.
 

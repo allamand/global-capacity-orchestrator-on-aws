@@ -2,9 +2,9 @@
 Stack management for GCO CLI.
 
 Provides commands for deploying, updating, and managing CDK stacks.
-This is the largest CLI module (~1600 lines) because it orchestrates the
-full deployment lifecycle including container runtime detection, CDK
-bootstrapping, Lambda source synchronization, and parallel regional deploys.
+It orchestrates the full deployment lifecycle, including container runtime
+detection, CDK bootstrapping, Lambda source synchronization, and parallel
+regional deploys.
 
 This module handles:
     - Container runtime detection (Docker, Finch, Podman) with automatic fallback
@@ -74,8 +74,8 @@ from gco.stacks.constants import (
 from .output import confirm, interactive_echo
 
 # <pyflowchart-code-diagram> BEGIN - auto-inserted, do not edit
-# Generated at (UTC): 2026-09-29T11:35:23Z
-# Generated from Git commit: a081fbf678ca3f3fa3f7edb74687de923efe6657
+# Generated at (UTC): 2026-10-15T15:31:13Z
+# Generated from Git commit: 012a4e30f0515f88ca91b2a6264d563a4b0ff006
 # Flowchart(s) generated from this file:
 #   * ``StackManager.deploy_orchestrated`` -> ``diagrams/code_diagrams/cli/stacks.StackManager_deploy_orchestrated.html``
 #     (PNG: ``diagrams/code_diagrams/cli/stacks.StackManager_deploy_orchestrated.png``)
@@ -1973,7 +1973,14 @@ class StackManager:
 
     def list_stacks(self) -> list[str]:
         """List all available CDK stacks."""
-        result = self._run_cdk(["list"], capture_output=True)
+        # stdout is parsed as one stack name per line, so it must carry
+        # nothing else. With CI set (every GitHub Actions runner sets it) the
+        # CDK CLI routes its own log lines to stdout instead of stderr, and a
+        # warning such as "current credentials could not be used to assume
+        # '...lookup-role...', but are for the right account. Proceeding
+        # anyway." then reads as a stack name. --no-ci keeps the logs on
+        # stderr whatever the environment says.
+        result = self._run_cdk(["list", "--no-ci"], capture_output=True)
         if result.returncode != 0:
             raise RuntimeError(f"Failed to list stacks: {result.stderr}")
         return [s.strip() for s in result.stdout.strip().split("\n") if s.strip()]
