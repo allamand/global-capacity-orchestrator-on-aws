@@ -1,31 +1,45 @@
 """
-Single-region EC2 capacity checker using real AWS signals.
+EC2 capacity checker using real AWS signals.
 
-This is the core capacity intelligence module (~1265 lines). It queries multiple
-AWS APIs to build a comprehensive picture of GPU/accelerator availability in a
-single region. The MultiRegionCapacityChecker in multi_region.py calls this for
-each region in parallel.
+This is the core capacity intelligence module. It queries multiple AWS APIs to
+build a picture of GPU/accelerator availability in a region, and manages
+reserved capacity end to end: On-Demand Capacity Reservations (ODCRs) and
+Capacity Blocks. Every query takes the region it should ask; the multi-region
+sweeps (``find_capacity_reservations``, ``find_capacity_blocks``,
+``check_reservation_availability``) fan out across regions in parallel
+themselves. ``MultiRegionCapacityChecker`` in multi_region.py reuses one
+instance, one region after another, for the instance-specific signals in its
+weighted region scoring.
 
 Data Sources:
     - EC2 GetSpotPlacementScores: likelihood of getting spot capacity (1-10 score)
     - EC2 DescribeSpotPriceHistory: current and historical spot prices (7-day window)
+    - AWS Price List GetProducts: Linux on-demand prices (through us-east-1)
     - EC2 DescribeInstanceTypes: full compute characteristics — vCPU/cores/threads,
       memory, every accelerator class, EFA and network limits, local NVMe and EBS,
       placement-group support, purchase options, platform capabilities
-    - EC2 DescribeInstanceTypeOfferings: which instance types are available in the region
+    - EC2 DescribeInstanceTypeOfferings and DescribeAvailabilityZones: which
+      instance types a region offers, and in how many of its AZs
     - EC2 DescribeCapacityBlockOfferings: purchasable Capacity Blocks for ML workloads
-    - EC2 PurchaseCapacityBlock: (optional) purchase a Capacity Block by offering ID
+    - EC2 DescribeCapacityReservations: existing ODCRs and their free capacity
+    - EC2 PurchaseCapacityBlock, CreateCapacityReservation, CancelCapacityReservation:
+      the explicit, opt-in actions that spend money or release capacity
 
 Key Classes:
-    CapacityChecker: Main class. Instantiated with a region and optional GCOConfig.
-        - check_capacity(instance_type) → CapacityEstimate
-        - get_spot_prices(instance_type) → list[SpotPriceInfo]
-        - get_instance_info(instance_type, region) → InstanceTypeInfo
-        - check_capacity_blocks(instance_type, count, duration) → list[dict]
+    CapacityChecker: Main class. Instantiated with an optional GCOConfig; each
+    method takes the region (or regions) to query.
+        - estimate_capacity(instance_type, region) → list[CapacityEstimate]
+        - get_spot_price_history(instance_type, region) → list[SpotPriceInfo]
+        - get_instance_info(instance_type, region) → InstanceTypeInfo | None
+        - list_capacity_block_offerings(region, instance_type, ...) → list[dict]
+        - find_capacity_reservations(...) / find_capacity_blocks(...) → one
+          ranked report across the given regions (default: deployed regions)
 
 Output Models (defined in models.py):
-    - CapacityEstimate: spot score, price, trend, on-demand price, instance specs
-    - SpotPriceInfo: AZ, price, timestamp
+    - CapacityEstimate: availability, confidence, wait estimate, hourly price,
+      and a recommendation for one capacity type (spot or on-demand)
+    - SpotPriceInfo: one AZ's current spot price with its 7-day average, min,
+      max, and stability
     - InstanceTypeInfo: every compute characteristic EC2 reports for a type
 
 Instance-type characteristics are always resolved live. A checked-in

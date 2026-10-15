@@ -198,8 +198,20 @@ copyright alongside rather than replacing what is there.
 - **Actions secrets and variables** the workflows expect, notably the AWS role
   ARN the OIDC login step assumes.
 - **Branch protection** rules, which forks do not inherit.
-- **Dependabot** — [`.github/dependabot.yml`](../.github/dependabot.yml) works
-  as-is, but Dependabot must be enabled for the repository.
+- **Dependabot**, under **Settings > Advanced Security**:
+  - **Dependabot version updates.** [`.github/dependabot.yml`](../.github/dependabot.yml)
+    works as-is, but GitHub does not act on it in a fork until this is
+    enabled. Once it is, Dependabot opens the same single weekly pull request it
+    opens upstream.
+  - **Dependabot alerts** and **Dependabot security updates**, which the next
+    setting needs, along with the dependency graph.
+  - **Grouped security updates.** Upstream enables this so security fixes
+    arrive as one pull request per ecosystem, across every directory, instead
+    of one pull request per vulnerable package. It has to be a setting:
+    `dependabot.yml` can group security updates only for the ecosystems it
+    lists, and it deliberately lists no Python. Without the setting, each
+    vulnerable Python package in `requirements-lock.txt` or a Lambda
+    `requirements.txt` arrives as its own pull request.
 - **Actions permissions**, if your organization restricts which actions may run.
 
 ## Verifying the Migration

@@ -412,9 +412,10 @@ To act on the report:
 
 Python dependencies are intentionally not tracked by [Dependabot](https://docs.github.com/en/code-security/dependabot) — they are
 pinned through `requirements-lock.txt` with `pip-compile` and reviewed
-deliberately. GitHub Actions, Docker base images, and both repository-owned npm
-graphs *are* tracked by Dependabot; see
-[Dependabot](../.github/CI.md#dependabot) for the split.
+deliberately. GitHub Actions, Docker base images, both repository-owned npm
+graphs, and the CI-only RubyGems graph *are* tracked by Dependabot, batched
+into one pull request a week; see [Dependabot](../.github/CI.md#dependabot) for
+the split.
 
 ## Refreshing the Bedrock default model
 
@@ -713,7 +714,8 @@ expiring entry — see [Renewing CVE suppressions](#renewing-cve-suppressions).
 
 **Automated updates.** Dependabot is scoped to **GitHub Actions, Docker, both
 repository-owned npm graphs, and the CI-only RubyGems graph**
-(`.github/dependabot.yml`); Python stays on
+(`.github/dependabot.yml`) and opens one grouped pull request a week for all of
+them; Python stays on
 the deliberate `pip-compile` path above. The security workflow runs
 `npm audit` independently in every discovered graph, and Advanced Setup CodeQL
 analyzes both Python and JavaScript. See

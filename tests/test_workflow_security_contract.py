@@ -364,10 +364,11 @@ def test_dependabot_covers_composite_actions_that_pin_third_party_actions() -> N
 
     For the ``github-actions`` ecosystem a ``directory`` of ``/`` scans
     ``.github/workflows`` plus an ``action.yml`` at the *repository root* — it
-    does not walk ``.github/actions/*/action.yml``. Without a second entry those
-    composite pins freeze at whatever SHA they were introduced with, quietly
-    accumulating the very CVEs pinning was supposed to let us adopt on our own
-    schedule. A glob only works under the plural ``directories`` key.
+    does not walk ``.github/actions/*/action.yml``. Unless those directories are
+    listed too, the composite pins freeze at whatever SHA they were introduced
+    with, quietly accumulating the very CVEs pinning was supposed to let us
+    adopt on our own schedule. A glob only works under the plural
+    ``directories`` key.
     """
     config = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
     entries = [
