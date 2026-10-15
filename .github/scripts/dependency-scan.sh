@@ -1327,9 +1327,11 @@ AUTOPILOT_COUNT="$(wc -l < "$AUTOPILOT_RESULTS" 2>/dev/null | tr -d ' ')"
 #
 # Compares the ``rev:`` pinned for each ``repo:`` block in
 # ``.pre-commit-config.yaml`` against the latest semver-shaped tag
-# published by the upstream Git host. This catches drift Dependabot
-# can't see — pre-commit pins live in YAML, not in the package
-# ecosystems Dependabot monitors — and matters in practice because
+# published by the upstream Git host. Dependabot has a pre-commit
+# ecosystem, but .github/dependabot.yml leaves it off on purpose: the
+# ruff, mypy, and yamllint hooks stay in lockstep with their pins in
+# requirements-lock.txt, which Dependabot does not manage, so this
+# report is what surfaces hook drift. It matters in practice because
 # stale hook pins quietly miss new lint rules and bug fixes.
 #
 # Each hook's repo URL is resolved to a tag list via the GitHub API
